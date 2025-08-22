@@ -1,0 +1,423 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f8f9fa;
+    color: #1a1a1a;
+    line-height: 1.5;
+}
+
+.container {
+    max-width: 400px;
+    margin: 0 auto;
+    min-height: 100vh;
+    background: white;
+}
+
+/* Header */
+header {
+    background: linear-gradient(135deg, #1cc29f, #16a085);
+    color: white;
+    padding: 50px 20px 30px;
+    position: relative;
+}
+
+.app-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.app-icon {
+    font-size: 2rem;
+    margin-right: 12px;
+}
+
+header h1 {
+    font-size: 1.8rem;
+    font-weight: 600;
+}
+
+.balance-summary {
+    text-align: center;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+}
+
+.balance-text {
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+/* Quick Actions */
+.quick-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: #e9ecef;
+}
+
+.action-btn {
+    background: white;
+    border: none;
+    padding: 25px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.action-btn:hover {
+    background: #f8f9fa;
+}
+
+.action-icon {
+    font-size: 1.5rem;
+    margin-bottom: 8px;
+}
+
+.action-btn span {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #1cc29f;
+}
+
+/* Modal */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+}
+
+.modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background: white;
+    width: 90%;
+    max-width: 400px;
+    border-radius: 16px;
+    overflow: hidden;
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(100px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 25px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.modal-header h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #1a1a1a;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #6c757d;
+    cursor: pointer;
+    padding: 5px;
+}
+
+/* Form Styles */
+.form-group {
+    padding: 20px 25px;
+    border-bottom: 1px solid #f1f3f4;
+}
+
+.form-group input {
+    width: 100%;
+    border: none;
+    font-size: 1.1rem;
+    background: transparent;
+    outline: none;
+}
+
+.form-group input::placeholder {
+    color: #6c757d;
+}
+
+.amount-group {
+    display: flex;
+    align-items: center;
+    padding: 20px 25px;
+    border-bottom: 1px solid #f1f3f4;
+}
+
+.currency {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #1cc29f;
+    margin-right: 10px;
+}
+
+.amount-group input {
+    flex: 1;
+    border: none;
+    font-size: 1.5rem;
+    font-weight: 600;
+    background: transparent;
+    outline: none;
+}
+
+.paid-by-group {
+    padding: 20px 25px;
+}
+
+.paid-by-group label {
+    display: block;
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.person-selector {
+    display: flex;
+    gap: 15px;
+}
+
+.person-btn {
+    flex: 1;
+    background: #f8f9fa;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.person-btn.selected {
+    background: #e8f5f0;
+    border-color: #1cc29f;
+}
+
+.person-avatar {
+    font-size: 1.5rem;
+    margin-bottom: 8px;
+}
+
+.person-btn span {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #1a1a1a;
+}
+
+.save-btn {
+    width: 100%;
+    padding: 18px;
+    background: #1cc29f;
+    color: white;
+    border: none;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.save-btn:hover {
+    background: #16a085;
+}
+
+.save-btn:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+}
+
+/* Expenses Section */
+.expenses-section {
+    padding: 20px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.section-header h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #1a1a1a;
+}
+
+.view-all-btn {
+    background: none;
+    border: none;
+    color: #1cc29f;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.expenses {
+    background: white;
+}
+
+.expense-item {
+    padding: 15px 0;
+    border-bottom: 1px solid #f1f3f4;
+    display: flex;
+    align-items: center;
+}
+
+.expense-item:last-child {
+    border-bottom: none;
+}
+
+.expense-icon {
+    width: 40px;
+    height: 40px;
+    background: #f8f9fa;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 15px;
+    font-size: 1.2rem;
+}
+
+.expense-details {
+    flex: 1;
+}
+
+.expense-description {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #1a1a1a;
+    margin-bottom: 2px;
+}
+
+.expense-meta {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+.expense-amount {
+    text-align: right;
+}
+
+.expense-total {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin-bottom: 2px;
+}
+
+.expense-split {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+.expense-split.you-owe {
+    color: #dc3545;
+}
+
+.expense-split.you-get {
+    color: #1cc29f;
+}
+
+.delete-btn {
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-left: 10px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.expense-item:hover .delete-btn {
+    opacity: 1;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+.empty-state-icon {
+    font-size: 3rem;
+    margin-bottom: 15px;
+    opacity: 0.5;
+}
+
+.empty-state h3 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #495057;
+}
+
+.empty-state p {
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+/* iOS Safari specific fixes */
+@supports (-webkit-touch-callout: none) {
+    .form-group input,
+    .amount-group input {
+        -webkit-appearance: none;
+    }
+    
+    .save-btn,
+    .person-btn {
+        -webkit-appearance: none;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 375px) {
+    .container {
+        max-width: 100%;
+    }
+    
+    header {
+        padding: 40px 15px 25px;
+    }
+    
+    .expenses-section {
+        padding: 15px;
+    }
+}
