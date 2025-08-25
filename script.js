@@ -17,6 +17,7 @@ class ExpenseTracker {
         this.toBuyItems = [];
         this.settlements = [];
         this.selectedPerson = null;
+        this.selectedSplit = 'all'; // Default to split with everyone
         this.currentTab = 'expenses';
         this.assigningItem = null;
         this.uploadedScreenshot = null;
@@ -61,6 +62,7 @@ class ExpenseTracker {
         // Reset current state
         this.currentTab = 'expenses';
         this.selectedPerson = null;
+        this.selectedSplit = 'all';
         this.assigningItem = null;
         this.uploadedScreenshot = null;
         
@@ -152,6 +154,18 @@ class ExpenseTracker {
         }
     }
 
+    getSplitWithText(expense) {
+        const splitWith = expense.splitWith || 'all';
+        if (splitWith === 'all') {
+            return ' • Split with everyone';
+        } else if (['richard', 'tim', 'fijar'].includes(splitWith)) {
+            const displayName = splitWith.charAt(0).toUpperCase() + splitWith.slice(1);
+            return ` • Split with ${displayName}`;
+        } else {
+            return ' • Split with everyone'; // fallback
+        }
+    }
+
     saveAllData() {
         this.saveExpenses();
         this.saveSuggestions();
@@ -216,6 +230,14 @@ class ExpenseTracker {
             });
         });
 
+        // Split selector buttons
+        document.querySelectorAll('.split-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.selectSplit(btn.dataset.split);
+            });
+        });
+
         // Modal close on background click
         document.querySelectorAll('.modal').forEach(modal => {
             modal.addEventListener('click', (e) => {
@@ -262,6 +284,13 @@ class ExpenseTracker {
         const saveBtn = document.querySelector('#assignModal .save-btn');
         saveBtn.disabled = false;
         saveBtn.dataset.assignee = person;
+    }
+
+    selectSplit(splitType) {
+        this.selectedSplit = splitType;
+        document.querySelectorAll('.split-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.split === splitType);
+        });
     }
 
     showAddExpense() {
@@ -723,6 +752,7 @@ class ExpenseTracker {
             description,
             amount,
             paidBy: this.selectedPerson === 'you' ? this.currentAccount : 'housemate',
+            splitWith: this.selectedSplit, // Store who this expense should be split with
             date: new Date().toISOString()
         };
 
@@ -873,44 +903,62 @@ class ExpenseTracker {
         if (this.resetOCRState) this.resetOCRState();
 
         this.selectedPerson = null;
+        this.selectedSplit = 'all';
         document.querySelectorAll('.person-btn').forEach(btn => {
             btn.classList.remove('selected');
         });
         document.querySelectorAll('.assign-btn').forEach(btn => {
             btn.classList.remove('selected');
         });
+        document.querySelectorAll('.split-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.split === 'all');
+        });
     }
 
     calculateTotals() {
         const allAccounts = ['richard', 'tim', 'fijar'];
-        const accountTotals = { richard: 0, tim: 0, fijar: 0 };
-        let grandTotal = 0;
-
-        // Calculate how much each account has paid
-        this.expenses.forEach(expense => {
-            const paidBy = this.getActualPaidByAccount(expense);
-            accountTotals[paidBy] += expense.amount;
-            grandTotal += expense.amount;
-        });
-
-        // Calculate what each account should pay (1/3 of total)
-        const sharePerAccount = grandTotal / 3;
-        
-        // Calculate balances with other accounts from current account's perspective
         const accountBalances = {};
         const otherAccounts = this.getOtherAccounts();
         
+        // Initialize balances
         otherAccounts.forEach(account => {
-            // How much current account has paid for shared expenses
-            const currentAccountPaid = accountTotals[this.currentAccount];
-            // How much the other account has paid  
-            const otherAccountPaid = accountTotals[account];
+            accountBalances[account] = 0;
+        });
+
+        // Process each expense based on who it's split with
+        this.expenses.forEach(expense => {
+            const paidBy = this.getActualPaidByAccount(expense);
+            const splitWith = expense.splitWith || 'all'; // Default to 'all' for legacy expenses
             
-            // Each should pay 1/3, so the net balance between them is:
-            // (currentPaid - currentShare) - (otherPaid - otherShare)
-            // Since shares are equal: currentPaid - otherPaid
-            const netBalance = (currentAccountPaid - sharePerAccount) - (otherAccountPaid - sharePerAccount);
-            accountBalances[account] = netBalance;
+            let participantAccounts = [];
+            
+            if (splitWith === 'all') {
+                // Split with everyone
+                participantAccounts = allAccounts;
+            } else if (allAccounts.includes(splitWith)) {
+                // Split with specific person - involves payer and that person
+                participantAccounts = [paidBy, splitWith];
+            } else {
+                // Legacy format or unknown - default to all
+                participantAccounts = allAccounts;
+            }
+            
+            // Calculate share per participant
+            const sharePerParticipant = expense.amount / participantAccounts.length;
+            
+            // Update balances between current account and each participant
+            participantAccounts.forEach(participant => {
+                if (participant !== this.currentAccount && otherAccounts.includes(participant)) {
+                    if (paidBy === this.currentAccount) {
+                        // Current account paid, they should get back from this participant
+                        accountBalances[participant] += sharePerParticipant;
+                    } else if (paidBy === participant) {
+                        // This participant paid, current account owes them
+                        accountBalances[participant] -= sharePerParticipant;
+                    }
+                    // If neither current account nor this participant paid, no change to their balance
+                }
+            });
         });
 
         // Calculate totals for compatibility
@@ -930,8 +978,7 @@ class ExpenseTracker {
             totalOwedToYou,
             totalYouOwe,
             youOwe: totalYouOwe,
-            housemateOwes: totalOwedToYou,
-            grandTotal
+            housemateOwes: totalOwedToYou
         };
     }
 
@@ -1022,7 +1069,14 @@ class ExpenseTracker {
         }
 
         container.innerHTML = this.expenses.map(expense => {
-            const halfAmount = expense.amount / 2;
+            // Calculate split amount based on who participated
+            const splitWith = expense.splitWith || 'all';
+            let participantCount = 3; // default for 'all'
+            if (splitWith !== 'all' && ['richard', 'tim', 'fijar'].includes(splitWith)) {
+                participantCount = 2; // split between payer and specific person
+            }
+            const splitAmount = expense.amount / participantCount;
+            
             // Determine if current account paid for this expense
             const isYourExpense = this.isExpensePaidByCurrentAccount(expense);
             const paidByName = this.getExpensePaidByDisplayName(expense);
@@ -1035,13 +1089,14 @@ class ExpenseTracker {
                         <div class="expense-meta">
                             Paid by ${paidByName} • 
                             ${this.formatDate(expense.date)}
+                            ${this.getSplitWithText(expense)}
                             ${expense.fromToBuy ? ' • From shopping list' : ''}
                         </div>
                     </div>
                     <div class="expense-amount">
                         <div class="expense-total">$${expense.amount.toFixed(2)}</div>
                         <div class="expense-split ${isYourExpense ? 'you-get' : 'you-owe'}">
-                            ${isYourExpense ? `${currentAccount} gets` : `${currentAccount} owes`} $${halfAmount.toFixed(2)}
+                            ${isYourExpense ? `${currentAccount} gets` : `${currentAccount} owes`} $${splitAmount.toFixed(2)}
                         </div>
                     </div>
                     <button class="delete-btn" onclick="tracker.deleteExpense(${expense.id})">
