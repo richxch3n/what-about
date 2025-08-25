@@ -344,9 +344,21 @@ class ExpenseTracker {
     showSettleUpModal() {
         const totals = this.calculateTotals();
         const currentAccount = this.getCurrentAccountDisplayName();
-        const otherAccounts = this.getOtherAccountsDisplayName();
         
-        if (totals.youOwe === 0 && totals.housemateOwes === 0) {
+        // Find the most significant debt
+        let maxBalance = 0;
+        let maxAccount = '';
+        let isOwed = false;
+
+        Object.entries(totals.accountBalances).forEach(([account, balance]) => {
+            if (Math.abs(balance) > Math.abs(maxBalance)) {
+                maxBalance = balance;
+                maxAccount = account;
+                isOwed = balance > 0;
+            }
+        });
+
+        if (Math.abs(maxBalance) < 0.01) {
             alert('All settled up! No payment needed.');
             return;
         }
@@ -354,21 +366,22 @@ class ExpenseTracker {
         const modal = document.getElementById('settleUpModal');
         const paymentInfo = document.getElementById('paymentInfo');
         const amountInput = document.getElementById('settlementAmount');
+        const otherAccountName = maxAccount.charAt(0).toUpperCase() + maxAccount.slice(1);
         
-        if (totals.youOwe > 0) {
+        if (isOwed) {
             paymentInfo.innerHTML = `
-                <h4>Send payment to ${otherAccounts.toLowerCase()}</h4>
-                <p>${currentAccount} currently owes ${otherAccounts.toLowerCase()}</p>
-                <div class="payment-amount">$${totals.youOwe.toFixed(2)}</div>
+                <h4>Request payment from ${otherAccountName.toLowerCase()}</h4>
+                <p>${otherAccountName} owes ${currentAccount}</p>
+                <div class="payment-amount">$${Math.abs(maxBalance).toFixed(2)}</div>
             `;
-            amountInput.value = totals.youOwe.toFixed(2);
+            amountInput.value = Math.abs(maxBalance).toFixed(2);
         } else {
             paymentInfo.innerHTML = `
-                <h4>Request payment from ${otherAccounts.toLowerCase()}</h4>
-                <p>${otherAccounts} owes ${currentAccount}</p>
-                <div class="payment-amount">$${totals.housemateOwes.toFixed(2)}</div>
+                <h4>Send payment to ${otherAccountName.toLowerCase()}</h4>
+                <p>${currentAccount} owes ${otherAccountName}</p>
+                <div class="payment-amount">$${Math.abs(maxBalance).toFixed(2)}</div>
             `;
-            amountInput.value = totals.housemateOwes.toFixed(2);
+            amountInput.value = Math.abs(maxBalance).toFixed(2);
         }
         
         modal.classList.add('active');
@@ -869,30 +882,70 @@ class ExpenseTracker {
     }
 
     calculateTotals() {
-        let currentAccountTotal = 0;
-        let otherAccountsTotal = 0;
+        const allAccounts = ['richard', 'tim', 'fijar'];
+        const accountTotals = { richard: 0, tim: 0, fijar: 0 };
         let grandTotal = 0;
 
+        // Calculate how much each account has paid
         this.expenses.forEach(expense => {
+            const paidBy = this.getActualPaidByAccount(expense);
+            accountTotals[paidBy] += expense.amount;
             grandTotal += expense.amount;
-            if (this.isExpensePaidByCurrentAccount(expense)) {
-                currentAccountTotal += expense.amount;
+        });
+
+        // Calculate what each account should pay (1/3 of total)
+        const sharePerAccount = grandTotal / 3;
+        
+        // Calculate balances with other accounts from current account's perspective
+        const accountBalances = {};
+        const otherAccounts = this.getOtherAccounts();
+        
+        otherAccounts.forEach(account => {
+            // How much current account has paid for shared expenses
+            const currentAccountPaid = accountTotals[this.currentAccount];
+            // How much the other account has paid  
+            const otherAccountPaid = accountTotals[account];
+            
+            // Each should pay 1/3, so the net balance between them is:
+            // (currentPaid - currentShare) - (otherPaid - otherShare)
+            // Since shares are equal: currentPaid - otherPaid
+            const netBalance = (currentAccountPaid - sharePerAccount) - (otherAccountPaid - sharePerAccount);
+            accountBalances[account] = netBalance;
+        });
+
+        // Calculate totals for compatibility
+        let totalOwedToYou = 0;
+        let totalYouOwe = 0;
+
+        Object.values(accountBalances).forEach(balance => {
+            if (balance > 0) {
+                totalOwedToYou += balance;
             } else {
-                otherAccountsTotal += expense.amount;
+                totalYouOwe += Math.abs(balance);
             }
         });
 
-        const halfTotal = grandTotal / 2;
-        const youOwe = Math.max(0, halfTotal - currentAccountTotal);
-        const housemateOwes = Math.max(0, halfTotal - otherAccountsTotal);
-
         return {
-            grandTotal,
-            youOwe,
-            housemateOwes,
-            youTotal: currentAccountTotal,
-            housemateTotal: otherAccountsTotal
+            accountBalances,
+            totalOwedToYou,
+            totalYouOwe,
+            youOwe: totalYouOwe,
+            housemateOwes: totalOwedToYou,
+            grandTotal
         };
+    }
+
+    getActualPaidByAccount(expense) {
+        if (expense.paidBy === 'you') {
+            return this.currentAccount;
+        } else if (expense.paidBy === 'housemate') {
+            // Legacy - we can't know which specific account, return first other
+            return this.getOtherAccounts()[0];
+        } else if (['richard', 'tim', 'fijar'].includes(expense.paidBy)) {
+            return expense.paidBy;
+        } else {
+            return expense.paidBy;
+        }
     }
 
     updateDisplay() {
@@ -913,17 +966,39 @@ class ExpenseTracker {
         const totals = this.calculateTotals();
         const balanceSummary = document.getElementById('balanceSummary');
         const balanceText = balanceSummary.querySelector('.balance-text');
-        const otherAccounts = this.getOtherAccountsDisplayName();
+        const currentAccount = this.getCurrentAccountDisplayName();
         
-        if (totals.grandTotal === 0) {
+        // Check if all settled up
+        const hasAnyBalance = Object.values(totals.accountBalances).some(balance => Math.abs(balance) > 0.01);
+        
+        if (!hasAnyBalance) {
             balanceText.textContent = 'All settled up!';
             balanceSummary.style.background = 'rgba(255, 255, 255, 0.15)';
-        } else if (totals.youOwe > 0) {
-            balanceText.textContent = `${this.getCurrentAccountDisplayName()} owes ${otherAccounts} $${totals.youOwe.toFixed(2)}`;
-            balanceSummary.style.background = 'rgba(220, 53, 69, 0.2)';
-        } else if (totals.housemateOwes > 0) {
-            balanceText.textContent = `${otherAccounts} owes ${this.getCurrentAccountDisplayName()} $${totals.housemateOwes.toFixed(2)}`;
-            balanceSummary.style.background = 'rgba(40, 199, 111, 0.2)';
+            return;
+        }
+
+        // Find the most significant balance to display
+        let maxBalance = 0;
+        let maxAccount = '';
+        let isOwed = false;
+
+        Object.entries(totals.accountBalances).forEach(([account, balance]) => {
+            if (Math.abs(balance) > Math.abs(maxBalance)) {
+                maxBalance = balance;
+                maxAccount = account;
+                isOwed = balance > 0;
+            }
+        });
+
+        if (maxBalance !== 0) {
+            const accountDisplayName = maxAccount.charAt(0).toUpperCase() + maxAccount.slice(1);
+            if (isOwed) {
+                balanceText.textContent = `${accountDisplayName} owes ${currentAccount} $${Math.abs(maxBalance).toFixed(2)}`;
+                balanceSummary.style.background = 'rgba(40, 199, 111, 0.2)';
+            } else {
+                balanceText.textContent = `${currentAccount} owes ${accountDisplayName} $${Math.abs(maxBalance).toFixed(2)}`;
+                balanceSummary.style.background = 'rgba(220, 53, 69, 0.2)';
+            }
         } else {
             balanceText.textContent = 'All settled up!';
             balanceSummary.style.background = 'rgba(255, 255, 255, 0.15)';
