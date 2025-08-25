@@ -16,7 +16,6 @@ class ExpenseTracker {
         this.suggestions = [];
         this.toBuyItems = [];
         this.settlements = [];
-        this.selectedPerson = null;
         this.selectedSplit = 'all'; // Default to split with everyone
         this.currentTab = 'expenses';
         this.assigningItem = null;
@@ -61,7 +60,6 @@ class ExpenseTracker {
         
         // Reset current state
         this.currentTab = 'expenses';
-        this.selectedPerson = null;
         this.selectedSplit = 'all';
         this.assigningItem = null;
         this.uploadedScreenshot = null;
@@ -108,17 +106,15 @@ class ExpenseTracker {
         const currentAccountName = this.getCurrentAccountDisplayName();
         const otherAccountsName = this.getOtherAccountsDisplayName();
         
-        // Update expense form buttons
-        const youBtn = document.querySelector('#addExpenseModal .person-btn[data-person="you"] span');
-        const housemateBtn = document.querySelector('#addExpenseModal .person-btn[data-person="housemate"] span');
-        if (youBtn) youBtn.textContent = currentAccountName;
-        if (housemateBtn) housemateBtn.textContent = otherAccountsName;
-        
-        // Update assignment modal buttons
+        // Update assignment modal buttons only
         const assignYouBtn = document.querySelector('#assignModal .person-btn[data-person="you"] span');
         const assignHousemateBtn = document.querySelector('#assignModal .person-btn[data-person="housemate"] span');
         if (assignYouBtn) assignYouBtn.textContent = currentAccountName;
         if (assignHousemateBtn) assignHousemateBtn.textContent = otherAccountsName;
+        
+        // Update expense payer hint
+        const payerHint = document.getElementById('currentAccountName');
+        if (payerHint) payerHint.textContent = currentAccountName;
     }
 
     // Helper functions to interpret expense perspectives
@@ -214,8 +210,8 @@ class ExpenseTracker {
             fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
         }
 
-        // Person selector buttons
-        document.querySelectorAll('.person-btn').forEach(btn => {
+        // Person selector buttons (only for assignment modal now)
+        document.querySelectorAll('#assignModal .person-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 this.selectPerson(btn.dataset.person);
@@ -360,14 +356,8 @@ class ExpenseTracker {
     }
 
     showSettleUp() {
-        const totals = this.calculateTotals();
-        if (totals.youOwe > 0) {
-            alert(`You owe your housemate $${totals.youOwe.toFixed(2)}`);
-        } else if (totals.housemateOwes > 0) {
-            alert(`Your housemate owes you $${totals.housemateOwes.toFixed(2)}`);
-        } else {
-            alert('You are all settled up!');
-        }
+        // Directly open the settlement modal instead of showing an alert
+        this.showSettleUpModal();
     }
 
     showSettleUpModal() {
@@ -742,8 +732,8 @@ class ExpenseTracker {
         const description = document.getElementById('description').value.trim();
         const amount = parseFloat(document.getElementById('amount').value);
 
-        if (!description || !amount || !this.selectedPerson) {
-            alert('Please fill in all fields and select who paid');
+        if (!description || !amount) {
+            alert('Please fill in all fields');
             return;
         }
 
@@ -751,7 +741,7 @@ class ExpenseTracker {
             id: Date.now(),
             description,
             amount,
-            paidBy: this.selectedPerson === 'you' ? this.currentAccount : 'housemate',
+            paidBy: this.currentAccount, // Always use current account as payer
             splitWith: this.selectedSplit, // Store who this expense should be split with
             date: new Date().toISOString()
         };
@@ -902,11 +892,7 @@ class ExpenseTracker {
         if (this.removeScreenshot) this.removeScreenshot();
         if (this.resetOCRState) this.resetOCRState();
 
-        this.selectedPerson = null;
         this.selectedSplit = 'all';
-        document.querySelectorAll('.person-btn').forEach(btn => {
-            btn.classList.remove('selected');
-        });
         document.querySelectorAll('.assign-btn').forEach(btn => {
             btn.classList.remove('selected');
         });

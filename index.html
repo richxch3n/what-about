@@ -118,6 +118,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h3>Add an expense</h3>
+                    <div class="expense-payer-hint">Paid by <span id="currentAccountName">you</span></div>
                     <button class="close-btn" onclick="closeModal()">&times;</button>
                 </div>
                 <form id="expenseForm">
@@ -128,20 +129,6 @@
                     <div class="amount-group">
                         <span class="currency">$</span>
                         <input type="number" id="amount" placeholder="0.00" step="0.01" min="0" required>
-                    </div>
-                    
-                    <div class="paid-by-group">
-                        <label>Paid by</label>
-                        <div class="person-selector">
-                            <button type="button" class="person-btn" data-person="you">
-                                <div class="person-avatar">👤</div>
-                                <span>You</span>
-                            </button>
-                            <button type="button" class="person-btn" data-person="housemate">
-                                <div class="person-avatar">👥</div>
-                                <span>Housemate</span>
-                            </button>
-                        </div>
                     </div>
                     
                     <div class="split-with-group">

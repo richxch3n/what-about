@@ -414,6 +414,17 @@ header h1 {
     color: #1a1a1a;
 }
 
+.expense-payer-hint {
+    font-size: 0.9rem;
+    color: #1cc29f;
+    font-weight: 500;
+    margin-top: 4px;
+}
+
+.expense-payer-hint span {
+    font-weight: 600;
+}
+
 .close-btn {
     background: none;
     border: none;
