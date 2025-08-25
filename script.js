@@ -77,6 +77,10 @@ class ExpenseTracker {
     }
 
     getStorageKey(dataType) {
+        // Expenses are shared across all accounts, others are account-specific
+        if (dataType === 'expenseTracker') {
+            return 'expenseTracker_shared';
+        }
         return `${dataType}_${this.currentAccount}`;
     }
 
@@ -113,6 +117,39 @@ class ExpenseTracker {
         const assignHousemateBtn = document.querySelector('#assignModal .person-btn[data-person="housemate"] span');
         if (assignYouBtn) assignYouBtn.textContent = currentAccountName;
         if (assignHousemateBtn) assignHousemateBtn.textContent = otherAccountsName;
+    }
+
+    // Helper functions to interpret expense perspectives
+    isExpensePaidByCurrentAccount(expense) {
+        // If paidBy is 'you', check if it was originally from current account
+        // If paidBy is 'housemate', it wasn't from current account
+        // If paidBy is an actual account name, compare with current account
+        if (expense.paidBy === 'you') {
+            // For legacy expenses, we need to determine context
+            // For new expenses, we'll store the actual account name
+            return true;
+        } else if (expense.paidBy === 'housemate') {
+            return false;
+        } else {
+            // New format with actual account names
+            return expense.paidBy === this.currentAccount;
+        }
+    }
+
+    getExpensePaidByDisplayName(expense) {
+        if (expense.paidBy === 'you') {
+            // Legacy format - assume it was paid by someone, show current perspective
+            return this.getCurrentAccountDisplayName();
+        } else if (expense.paidBy === 'housemate') {
+            // Legacy format - show other accounts
+            return this.getOtherAccountsDisplayName().toLowerCase();
+        } else if (['richard', 'tim', 'fijar'].includes(expense.paidBy)) {
+            // New format with actual account names
+            return expense.paidBy.charAt(0).toUpperCase() + expense.paidBy.slice(1);
+        } else {
+            // Fallback
+            return expense.paidBy;
+        }
     }
 
     saveAllData() {
@@ -564,11 +601,12 @@ class ExpenseTracker {
         this.saveSettlements();
         
         // Reset balances by creating offsetting "settlement" expenses
+        const settlementPaidBy = settlement.paidBy === 'you' ? 'housemate' : this.currentAccount;
         const settlementExpense = {
             id: Date.now() + 1,
             description: `Settlement payment - ${settlement.paymentMethod}`,
             amount: settlement.amount,
-            paidBy: settlement.paidBy === 'you' ? 'housemate' : 'you',
+            paidBy: settlementPaidBy,
             date: settlement.date,
             isSettlement: true,
             settlementId: settlement.id
@@ -620,12 +658,13 @@ class ExpenseTracker {
         
         if (confirm(`Mark all ${assignedItems.length} assigned items as bought and convert to expenses?`)) {
             assignedItems.forEach(item => {
-                // Create expense
+                // Create expense with actual account name
+                const paidBy = item.assignedTo === 'you' ? this.currentAccount : 'housemate';
                 const expense = {
                     id: Date.now() + Math.random(), // Ensure unique ID
                     description: item.description,
                     amount: item.amount || 0,
-                    paidBy: item.assignedTo,
+                    paidBy: paidBy,
                     date: new Date().toISOString(),
                     fromToBuy: true
                 };
@@ -670,7 +709,7 @@ class ExpenseTracker {
             id: Date.now(),
             description,
             amount,
-            paidBy: this.selectedPerson,
+            paidBy: this.selectedPerson === 'you' ? this.currentAccount : 'housemate',
             date: new Date().toISOString()
         };
 
@@ -762,12 +801,13 @@ class ExpenseTracker {
         if (!item || !item.assignedTo) return;
 
         if (confirm('Mark this item as bought and convert to expense?')) {
-            // Create expense
+            // Create expense with actual account name
+            const paidBy = item.assignedTo === 'you' ? this.currentAccount : 'housemate';
             const expense = {
                 id: Date.now(),
                 description: item.description,
                 amount: item.amount || 0,
-                paidBy: item.assignedTo,
+                paidBy: paidBy,
                 date: new Date().toISOString(),
                 fromToBuy: true
             };
@@ -829,29 +869,29 @@ class ExpenseTracker {
     }
 
     calculateTotals() {
-        let youTotal = 0;
-        let housemateTotal = 0;
+        let currentAccountTotal = 0;
+        let otherAccountsTotal = 0;
         let grandTotal = 0;
 
         this.expenses.forEach(expense => {
             grandTotal += expense.amount;
-            if (expense.paidBy === 'you') {
-                youTotal += expense.amount;
+            if (this.isExpensePaidByCurrentAccount(expense)) {
+                currentAccountTotal += expense.amount;
             } else {
-                housemateTotal += expense.amount;
+                otherAccountsTotal += expense.amount;
             }
         });
 
         const halfTotal = grandTotal / 2;
-        const youOwe = Math.max(0, halfTotal - youTotal);
-        const housemateOwes = Math.max(0, halfTotal - housemateTotal);
+        const youOwe = Math.max(0, halfTotal - currentAccountTotal);
+        const housemateOwes = Math.max(0, halfTotal - otherAccountsTotal);
 
         return {
             grandTotal,
             youOwe,
             housemateOwes,
-            youTotal,
-            housemateTotal
+            youTotal: currentAccountTotal,
+            housemateTotal: otherAccountsTotal
         };
     }
 
@@ -908,8 +948,9 @@ class ExpenseTracker {
 
         container.innerHTML = this.expenses.map(expense => {
             const halfAmount = expense.amount / 2;
-            const isYourExpense = expense.paidBy === 'you';
-            const paidByName = isYourExpense ? currentAccount : otherAccounts.toLowerCase();
+            // Determine if current account paid for this expense
+            const isYourExpense = this.isExpensePaidByCurrentAccount(expense);
+            const paidByName = this.getExpensePaidByDisplayName(expense);
             
             return `
                 <div class="expense-item">
