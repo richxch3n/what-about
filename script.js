@@ -13,7 +13,13 @@ const firebaseConfig = {
 class ExpenseTracker {
     constructor() {
         this.expenses = [];
+        this.suggestions = [];
+        this.toBuyItems = [];
+        this.settlements = [];
         this.selectedPerson = null;
+        this.currentTab = 'expenses';
+        this.assigningItem = null;
+        this.uploadedScreenshot = null;
         this.db = null;
         this.initializeFirebase();
         this.initializeEventListeners();
@@ -31,18 +37,32 @@ class ExpenseTracker {
             
             // Load from localStorage for now
             this.expenses = this.loadExpenses();
+            this.suggestions = this.loadSuggestions();
+            this.toBuyItems = this.loadToBuyItems();
+            this.settlements = this.loadSettlements();
             this.updateDisplay();
         } catch (error) {
             console.error('Firebase initialization error:', error);
             // Fallback to localStorage
             this.expenses = this.loadExpenses();
+            this.suggestions = this.loadSuggestions();
+            this.toBuyItems = this.loadToBuyItems();
             this.updateDisplay();
         }
     }
 
     initializeEventListeners() {
-        const form = document.getElementById('expenseForm');
-        form.addEventListener('submit', (e) => this.handleFormSubmit(e));
+        const expenseForm = document.getElementById('expenseForm');
+        expenseForm.addEventListener('submit', (e) => this.handleFormSubmit(e));
+
+        const suggestionForm = document.getElementById('suggestionForm');
+        suggestionForm.addEventListener('submit', (e) => this.handleSuggestionSubmit(e));
+
+        // File upload handling
+        const fileInput = document.getElementById('paymentScreenshot');
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+        }
 
         // Person selector buttons
         document.querySelectorAll('.person-btn').forEach(btn => {
@@ -52,12 +72,43 @@ class ExpenseTracker {
             });
         });
 
-        // Modal close on background click
-        document.getElementById('addExpenseModal').addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal')) {
-                this.closeModal();
-            }
+        // Assignment buttons
+        document.querySelectorAll('.assign-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.selectAssignee(btn.dataset.person);
+            });
         });
+
+        // Modal close on background click
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target.classList.contains('modal')) {
+                    this.closeModal();
+                }
+            });
+        });
+    }
+
+    switchTab(tab) {
+        this.currentTab = tab;
+        
+        // Update tab buttons
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tab);
+        });
+
+        // Update tab content
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.toggle('hidden', !content.id.includes(tab));
+        });
+
+        // Update content sections
+        document.querySelectorAll('.content-section').forEach(section => {
+            section.classList.toggle('hidden', !section.id.includes(tab));
+        });
+
+        this.updateDisplay();
     }
 
     selectPerson(person) {
@@ -67,9 +118,80 @@ class ExpenseTracker {
         });
     }
 
+    selectAssignee(person) {
+        document.querySelectorAll('.assign-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.person === person);
+        });
+        
+        const saveBtn = document.querySelector('#assignModal .save-btn');
+        saveBtn.disabled = false;
+        saveBtn.dataset.assignee = person;
+    }
+
     showAddExpense() {
         document.getElementById('addExpenseModal').classList.add('active');
         document.getElementById('description').focus();
+    }
+
+    showSuggestItem() {
+        document.getElementById('suggestItemModal').classList.add('active');
+        document.getElementById('suggestionDescription').focus();
+    }
+
+    showAssignItems() {
+        if (this.toBuyItems.filter(item => !item.assignedTo).length === 0) {
+            alert('All items are already assigned!');
+            return;
+        }
+        
+        const unassigned = this.toBuyItems.filter(item => !item.assignedTo);
+        const message = `Assign all ${unassigned.length} unassigned items to:`;
+        const person = confirm(`${message}\n\nOK = You\nCancel = Housemate`);
+        
+        unassigned.forEach(item => {
+            item.assignedTo = person ? 'you' : 'housemate';
+        });
+        
+        this.saveToBuyItems();
+        this.updateDisplay();
+    }
+
+    showAssignModal(itemId) {
+        const item = this.toBuyItems.find(i => i.id === itemId);
+        if (!item) return;
+
+        this.assigningItem = item;
+        
+        const modal = document.getElementById('assignModal');
+        const itemInfo = document.getElementById('assignItemInfo');
+        
+        itemInfo.innerHTML = `
+            <h4>${this.escapeHtml(item.description)}</h4>
+            <p>Estimated cost: $${item.amount ? item.amount.toFixed(2) : 'Unknown'}</p>
+        `;
+        
+        // Reset assignment selection
+        document.querySelectorAll('.assign-btn').forEach(btn => {
+            btn.classList.remove('selected');
+        });
+        
+        const saveBtn = modal.querySelector('.save-btn');
+        saveBtn.disabled = true;
+        saveBtn.dataset.assignee = '';
+        
+        modal.classList.add('active');
+    }
+
+    confirmAssignment() {
+        const saveBtn = document.querySelector('#assignModal .save-btn');
+        const assignee = saveBtn.dataset.assignee;
+        
+        if (!this.assigningItem || !assignee) return;
+        
+        this.assigningItem.assignedTo = assignee;
+        this.saveToBuyItems();
+        this.updateDisplay();
+        this.closeModal();
     }
 
     showSettleUp() {
@@ -83,9 +205,353 @@ class ExpenseTracker {
         }
     }
 
+    showSettleUpModal() {
+        const totals = this.calculateTotals();
+        
+        if (totals.youOwe === 0 && totals.housemateOwes === 0) {
+            alert('You are all settled up! No payment needed.');
+            return;
+        }
+        
+        const modal = document.getElementById('settleUpModal');
+        const paymentInfo = document.getElementById('paymentInfo');
+        const amountInput = document.getElementById('settlementAmount');
+        
+        if (totals.youOwe > 0) {
+            paymentInfo.innerHTML = `
+                <h4>Send payment to housemate</h4>
+                <p>You currently owe your housemate</p>
+                <div class="payment-amount">$${totals.youOwe.toFixed(2)}</div>
+            `;
+            amountInput.value = totals.youOwe.toFixed(2);
+        } else {
+            paymentInfo.innerHTML = `
+                <h4>Request payment from housemate</h4>
+                <p>Your housemate owes you</p>
+                <div class="payment-amount">$${totals.housemateOwes.toFixed(2)}</div>
+            `;
+            amountInput.value = totals.housemateOwes.toFixed(2);
+        }
+        
+        modal.classList.add('active');
+    }
+
+    handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            alert('Please upload an image file');
+            return;
+        }
+        
+        // Validate file size (5MB max)
+        if (file.size > 5 * 1024 * 1024) {
+            alert('File size must be less than 5MB');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            this.uploadedScreenshot = {
+                data: e.target.result,
+                name: file.name,
+                size: file.size,
+                type: file.type
+            };
+            
+            this.showImagePreview(e.target.result);
+            this.processOCR(e.target.result);
+            this.updateSubmitButton();
+        };
+        
+        reader.readAsDataURL(file);
+    }
+
+    showImagePreview(imageSrc) {
+        const uploadArea = document.getElementById('fileUploadArea');
+        const placeholder = uploadArea.querySelector('.upload-placeholder');
+        const preview = document.getElementById('uploadPreview');
+        const previewImage = document.getElementById('previewImage');
+        
+        placeholder.classList.add('hidden');
+        preview.classList.remove('hidden');
+        previewImage.src = imageSrc;
+        uploadArea.classList.add('has-file');
+    }
+
+    removeScreenshot() {
+        this.uploadedScreenshot = null;
+        
+        const uploadArea = document.getElementById('fileUploadArea');
+        const placeholder = uploadArea.querySelector('.upload-placeholder');
+        const preview = document.getElementById('uploadPreview');
+        const fileInput = document.getElementById('paymentScreenshot');
+        
+        placeholder.classList.remove('hidden');
+        preview.classList.add('hidden');
+        uploadArea.classList.remove('has-file');
+        fileInput.value = '';
+        
+        this.updateSubmitButton();
+        this.resetOCRState();
+    }
+
+    async processOCR(imageSrc) {
+        const expectedAmount = parseFloat(document.getElementById('settlementAmount').value);
+        if (!expectedAmount) return;
+
+        // Show processing UI
+        const processing = document.getElementById('ocrProcessing');
+        const result = document.getElementById('ocrResult');
+        
+        processing.classList.remove('hidden');
+        result.classList.add('hidden');
+
+        try {
+            // Initialize Tesseract worker
+            const worker = await Tesseract.createWorker('eng');
+            
+            // Process the image
+            const { data: { text } } = await worker.recognize(imageSrc);
+            
+            // Clean up worker
+            await worker.terminate();
+            
+            // Extract amounts from text
+            const detectedAmounts = this.extractAmountsFromText(text);
+            
+            // Verify against expected amount
+            this.verifyAmount(expectedAmount, detectedAmounts, text);
+            
+        } catch (error) {
+            console.error('OCR processing failed:', error);
+            this.showOCRError('Failed to scan screenshot. Please ensure the image is clear and try again.');
+        } finally {
+            processing.classList.add('hidden');
+        }
+    }
+
+    extractAmountsFromText(text) {
+        // Multiple regex patterns to catch various amount formats
+        const patterns = [
+            // $123.45, $123, $1,234.56
+            /\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g,
+            // 123.45, 123, 1,234.56 (standalone numbers)
+            /(?:^|\s)(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)(?:\s|$)/g,
+            // Amount: 123.45, Total: 123.45
+            /(?:amount|total|paid|sent)[\s:]*\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/gi
+        ];
+        
+        const amounts = new Set();
+        
+        patterns.forEach(pattern => {
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                const amount = parseFloat(match[1].replace(/,/g, ''));
+                if (amount > 0 && amount < 100000) { // Reasonable range
+                    amounts.add(amount);
+                }
+            }
+        });
+        
+        return Array.from(amounts);
+    }
+
+    verifyAmount(expectedAmount, detectedAmounts, fullText) {
+        const result = document.getElementById('ocrResult');
+        const status = document.getElementById('verificationStatus');
+        
+        result.classList.remove('hidden');
+        
+        // Check for exact match
+        const exactMatch = detectedAmounts.find(amount => 
+            Math.abs(amount - expectedAmount) < 0.01
+        );
+        
+        // Check for close match (within $1)
+        const closeMatch = detectedAmounts.find(amount => 
+            Math.abs(amount - expectedAmount) <= 1.00 && Math.abs(amount - expectedAmount) > 0.01
+        );
+        
+        if (exactMatch) {
+            status.className = 'verification-status verified';
+            status.innerHTML = `
+                Amount verified: $${expectedAmount.toFixed(2)} found in screenshot
+                <div class="detected-amounts">Detected amounts: ${detectedAmounts.map(a => `$${a.toFixed(2)}`).join(', ')}</div>
+            `;
+        } else if (closeMatch) {
+            status.className = 'verification-status warning';
+            status.innerHTML = `
+                Close match found: $${closeMatch.toFixed(2)} (expected $${expectedAmount.toFixed(2)})
+                <div class="detected-amounts">Please verify this is correct. Detected: ${detectedAmounts.map(a => `$${a.toFixed(2)}`).join(', ')}</div>
+            `;
+        } else if (detectedAmounts.length > 0) {
+            status.className = 'verification-status error';
+            status.innerHTML = `
+                Amount mismatch: Expected $${expectedAmount.toFixed(2)}
+                <div class="detected-amounts">Found in screenshot: ${detectedAmounts.map(a => `$${a.toFixed(2)}`).join(', ')}</div>
+            `;
+        } else {
+            status.className = 'verification-status warning';
+            status.innerHTML = `
+                No amounts detected in screenshot. Please ensure the image is clear and contains the payment amount.
+                <div class="detected-amounts">Tip: Make sure the amount is clearly visible and not cut off</div>
+            `;
+        }
+    }
+
+    showOCRError(message) {
+        const result = document.getElementById('ocrResult');
+        const status = document.getElementById('verificationStatus');
+        
+        result.classList.remove('hidden');
+        status.className = 'verification-status error';
+        status.textContent = message;
+    }
+
+    resetOCRState() {
+        const processing = document.getElementById('ocrProcessing');
+        const result = document.getElementById('ocrResult');
+        
+        processing.classList.add('hidden');
+        result.classList.add('hidden');
+    }
+
+    updateSubmitButton() {
+        const submitBtn = document.querySelector('#settleUpModal .save-btn');
+        const amount = document.getElementById('settlementAmount').value;
+        const method = document.getElementById('paymentMethod').value;
+        
+        const isValid = amount && method && this.uploadedScreenshot;
+        submitBtn.disabled = !isValid;
+    }
+
+    submitSettlement() {
+        const amount = parseFloat(document.getElementById('settlementAmount').value);
+        const method = document.getElementById('paymentMethod').value;
+        const notes = document.getElementById('settlementNotes').value.trim();
+        
+        if (!amount || !method || !this.uploadedScreenshot) {
+            alert('Please fill in all required fields and upload a screenshot');
+            return;
+        }
+        
+        const totals = this.calculateTotals();
+        const settlement = {
+            id: Date.now(),
+            amount: amount,
+            paymentMethod: method,
+            notes: notes,
+            screenshot: this.uploadedScreenshot,
+            date: new Date().toISOString(),
+            paidBy: totals.youOwe > 0 ? 'you' : 'housemate',
+            status: 'completed',
+            type: totals.youOwe > 0 ? 'payment_sent' : 'payment_received'
+        };
+        
+        this.addSettlement(settlement);
+        this.closeModal();
+        
+        // Switch to settlements tab to show the new payment
+        this.switchTab('settlements');
+    }
+
+    addSettlement(settlement) {
+        this.settlements.unshift(settlement);
+        this.saveSettlements();
+        
+        // Reset balances by creating offsetting "settlement" expenses
+        const settlementExpense = {
+            id: Date.now() + 1,
+            description: `Settlement payment - ${settlement.paymentMethod}`,
+            amount: settlement.amount,
+            paidBy: settlement.paidBy === 'you' ? 'housemate' : 'you',
+            date: settlement.date,
+            isSettlement: true,
+            settlementId: settlement.id
+        };
+        
+        this.expenses.unshift(settlementExpense);
+        this.saveExpenses();
+        this.updateDisplay();
+    }
+
+    viewScreenshot(settlementId) {
+        const settlement = this.settlements.find(s => s.id === settlementId);
+        if (!settlement || !settlement.screenshot) return;
+        
+        // Create a modal to view the screenshot
+        const modal = document.createElement('div');
+        modal.className = 'modal active';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 90%; max-height: 90%;">
+                <div class="modal-header">
+                    <h3>Payment Screenshot</h3>
+                    <button class="close-btn" onclick="this.closest('.modal').remove()">&times;</button>
+                </div>
+                <div style="padding: 20px; text-align: center;">
+                    <img src="${settlement.screenshot.data}" style="max-width: 100%; max-height: 70vh; border-radius: 8px;" alt="Payment screenshot">
+                    <p style="margin-top: 15px; color: #6c757d; font-size: 0.9rem;">
+                        ${settlement.paymentMethod} • ${this.formatDate(settlement.date)} • $${settlement.amount.toFixed(2)}
+                    </p>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Close on background click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    }
+
+    markAllBought() {
+        const assignedItems = this.toBuyItems.filter(item => item.assignedTo && !item.bought);
+        if (assignedItems.length === 0) {
+            alert('No assigned items to mark as bought!');
+            return;
+        }
+        
+        if (confirm(`Mark all ${assignedItems.length} assigned items as bought and convert to expenses?`)) {
+            assignedItems.forEach(item => {
+                // Create expense
+                const expense = {
+                    id: Date.now() + Math.random(), // Ensure unique ID
+                    description: item.description,
+                    amount: item.amount || 0,
+                    paidBy: item.assignedTo,
+                    date: new Date().toISOString(),
+                    fromToBuy: true
+                };
+                
+                this.expenses.unshift(expense);
+                item.bought = true;
+            });
+            
+            // Remove bought items from to-buy list
+            this.toBuyItems = this.toBuyItems.filter(item => !item.bought);
+            
+            this.saveExpenses();
+            this.saveToBuyItems();
+            this.updateDisplay();
+            
+            // Switch to expenses tab to show new items
+            this.switchTab('expenses');
+        }
+    }
+
     closeModal() {
-        document.getElementById('addExpenseModal').classList.remove('active');
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.classList.remove('active');
+        });
         this.clearForm();
+        this.assigningItem = null;
+        this.uploadedScreenshot = null;
     }
 
     handleFormSubmit(e) {
@@ -111,14 +577,33 @@ class ExpenseTracker {
         this.closeModal();
     }
 
+    handleSuggestionSubmit(e) {
+        e.preventDefault();
+        
+        const description = document.getElementById('suggestionDescription').value.trim();
+        const amount = parseFloat(document.getElementById('suggestionAmount').value) || null;
+        const reason = document.getElementById('suggestionReason').value.trim();
+
+        if (!description) {
+            alert('Please enter what you want to suggest');
+            return;
+        }
+
+        const suggestion = {
+            id: Date.now(),
+            description,
+            amount,
+            reason,
+            date: new Date().toISOString(),
+            status: 'pending'
+        };
+
+        this.addSuggestion(suggestion);
+        this.closeModal();
+    }
+
     async addExpense(expense) {
         try {
-            // For demo purposes, we'll use localStorage
-            // In production, uncomment the Firebase code below
-            /*
-            await this.db.collection('expenses').add(expense);
-            */
-            
             this.expenses.unshift(expense);
             this.saveExpenses();
             this.updateDisplay();
@@ -128,14 +613,75 @@ class ExpenseTracker {
         }
     }
 
+    async addSuggestion(suggestion) {
+        try {
+            this.suggestions.unshift(suggestion);
+            this.saveSuggestions();
+            this.updateDisplay();
+        } catch (error) {
+            console.error('Error adding suggestion:', error);
+            alert('Failed to add suggestion. Please try again.');
+        }
+    }
+
+    acceptSuggestion(id) {
+        const suggestion = this.suggestions.find(s => s.id === id);
+        if (!suggestion) return;
+
+        // Move to to-buy list
+        const toBuyItem = {
+            id: Date.now(),
+            description: suggestion.description,
+            amount: suggestion.amount,
+            reason: suggestion.reason,
+            date: new Date().toISOString(),
+            assignedTo: null,
+            bought: false,
+            fromSuggestion: true
+        };
+
+        this.toBuyItems.unshift(toBuyItem);
+        this.suggestions = this.suggestions.filter(s => s.id !== id);
+        
+        this.saveSuggestions();
+        this.saveToBuyItems();
+        this.updateDisplay();
+    }
+
+    rejectSuggestion(id) {
+        if (confirm('Are you sure you want to reject this suggestion?')) {
+            this.suggestions = this.suggestions.filter(s => s.id !== id);
+            this.saveSuggestions();
+            this.updateDisplay();
+        }
+    }
+
+    markItemBought(id) {
+        const item = this.toBuyItems.find(i => i.id === id);
+        if (!item || !item.assignedTo) return;
+
+        if (confirm('Mark this item as bought and convert to expense?')) {
+            // Create expense
+            const expense = {
+                id: Date.now(),
+                description: item.description,
+                amount: item.amount || 0,
+                paidBy: item.assignedTo,
+                date: new Date().toISOString(),
+                fromToBuy: true
+            };
+
+            this.expenses.unshift(expense);
+            this.toBuyItems = this.toBuyItems.filter(i => i.id !== id);
+            
+            this.saveExpenses();
+            this.saveToBuyItems();
+            this.updateDisplay();
+        }
+    }
+
     async deleteExpense(id) {
         try {
-            // For demo purposes, we'll use localStorage
-            // In production, uncomment the Firebase code below
-            /*
-            await this.db.collection('expenses').doc(id).delete();
-            */
-            
             this.expenses = this.expenses.filter(expense => expense.id !== id);
             this.saveExpenses();
             this.updateDisplay();
@@ -146,10 +692,37 @@ class ExpenseTracker {
     }
 
     clearForm() {
-        document.getElementById('description').value = '';
-        document.getElementById('amount').value = '';
+        // Clear expense form
+        const descInput = document.getElementById('description');
+        const amountInput = document.getElementById('amount');
+        if (descInput) descInput.value = '';
+        if (amountInput) amountInput.value = '';
+
+        // Clear suggestion form
+        const suggDescInput = document.getElementById('suggestionDescription');
+        const suggAmountInput = document.getElementById('suggestionAmount');
+        const suggReasonInput = document.getElementById('suggestionReason');
+        if (suggDescInput) suggDescInput.value = '';
+        if (suggAmountInput) suggAmountInput.value = '';
+        if (suggReasonInput) suggReasonInput.value = '';
+        
+        // Clear settlement form
+        const settlementAmountInput = document.getElementById('settlementAmount');
+        const paymentMethodSelect = document.getElementById('paymentMethod');
+        const settlementNotesInput = document.getElementById('settlementNotes');
+        if (settlementAmountInput) settlementAmountInput.value = '';
+        if (paymentMethodSelect) paymentMethodSelect.value = '';
+        if (settlementNotesInput) settlementNotesInput.value = '';
+        
+        // Clear file upload and OCR state
+        if (this.removeScreenshot) this.removeScreenshot();
+        if (this.resetOCRState) this.resetOCRState();
+
         this.selectedPerson = null;
         document.querySelectorAll('.person-btn').forEach(btn => {
+            btn.classList.remove('selected');
+        });
+        document.querySelectorAll('.assign-btn').forEach(btn => {
             btn.classList.remove('selected');
         });
     }
@@ -183,7 +756,16 @@ class ExpenseTracker {
 
     updateDisplay() {
         this.updateBalanceSummary();
-        this.renderExpenses();
+        
+        if (this.currentTab === 'expenses') {
+            this.renderExpenses();
+        } else if (this.currentTab === 'suggestions') {
+            this.renderSuggestions();
+        } else if (this.currentTab === 'tobuy') {
+            this.renderToBuyList();
+        } else if (this.currentTab === 'settlements') {
+            this.renderSettlements();
+        }
     }
 
     updateBalanceSummary() {
@@ -220,8 +802,6 @@ class ExpenseTracker {
             return;
         }
 
-        const totals = this.calculateTotals();
-        
         container.innerHTML = this.expenses.map(expense => {
             const halfAmount = expense.amount / 2;
             const isYourExpense = expense.paidBy === 'you';
@@ -234,6 +814,7 @@ class ExpenseTracker {
                         <div class="expense-meta">
                             Paid by ${isYourExpense ? 'you' : 'your housemate'} • 
                             ${this.formatDate(expense.date)}
+                            ${expense.fromToBuy ? ' • From shopping list' : ''}
                         </div>
                     </div>
                     <div class="expense-amount">
@@ -244,6 +825,126 @@ class ExpenseTracker {
                     </div>
                     <button class="delete-btn" onclick="tracker.deleteExpense(${expense.id})">
                         Delete
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    renderSuggestions() {
+        const container = document.getElementById('suggestionsList');
+        
+        if (this.suggestions.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">💡</div>
+                    <h3>No suggestions yet</h3>
+                    <p>Suggest items you think you both need. Your housemate can accept or reject suggestions.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = this.suggestions.map(suggestion => `
+            <div class="suggestion-item">
+                <div class="suggestion-icon">💡</div>
+                <div class="suggestion-details">
+                    <div class="suggestion-description">${this.escapeHtml(suggestion.description)}</div>
+                    <div class="suggestion-meta">
+                        Suggested ${this.formatDate(suggestion.date)}
+                        ${suggestion.reason ? ` • ${this.escapeHtml(suggestion.reason)}` : ''}
+                    </div>
+                </div>
+                ${suggestion.amount ? `<div class="suggestion-amount">$${suggestion.amount.toFixed(2)}</div>` : ''}
+                <div class="suggestion-actions">
+                    <button class="accept-btn" onclick="tracker.acceptSuggestion(${suggestion.id})">
+                        Accept
+                    </button>
+                    <button class="reject-btn" onclick="tracker.rejectSuggestion(${suggestion.id})">
+                        Reject
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    renderToBuyList() {
+        const container = document.getElementById('tobuyList');
+        
+        if (this.toBuyItems.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">🛒</div>
+                    <h3>Shopping list is empty</h3>
+                    <p>Accept suggestions to add them to your shopping list, then assign who should buy what.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = this.toBuyItems.map(item => `
+            <div class="tobuy-item">
+                <div class="tobuy-icon">🛒</div>
+                <div class="tobuy-details">
+                    <div class="tobuy-description">${this.escapeHtml(item.description)}</div>
+                    <div class="tobuy-meta">
+                        Added ${this.formatDate(item.date)}
+                        ${item.reason ? ` • ${this.escapeHtml(item.reason)}` : ''}
+                    </div>
+                </div>
+                <div class="tobuy-amount">
+                    ${item.amount ? `<div class="tobuy-price">$${item.amount.toFixed(2)}</div>` : ''}
+                    <div class="tobuy-assigned ${item.assignedTo ? 'assigned' : ''}">
+                        ${item.assignedTo ? `Assigned to ${item.assignedTo === 'you' ? 'you' : 'housemate'}` : 'Unassigned'}
+                    </div>
+                </div>
+                ${!item.assignedTo ? 
+                    `<button class="assign-btn-item" onclick="tracker.showAssignModal(${item.id})">Assign</button>` :
+                    `<button class="bought-btn" onclick="tracker.markItemBought(${item.id})">Bought</button>`
+                }
+            </div>
+        `).join('');
+    }
+
+    renderSettlements() {
+        const container = document.getElementById('settlementsList');
+        
+        if (this.settlements.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">💸</div>
+                    <h3>No payments yet</h3>
+                    <p>When you settle up expenses, payment records will appear here with screenshot verification.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = this.settlements.map(settlement => {
+            const isPaid = settlement.paidBy === 'you';
+            
+            return `
+                <div class="settlement-item">
+                    <div class="settlement-icon ${settlement.status}">
+                        ${isPaid ? '💸' : '💰'}
+                    </div>
+                    <div class="settlement-details">
+                        <div class="settlement-description">
+                            ${isPaid ? 'Payment sent' : 'Payment received'} via ${settlement.paymentMethod}
+                        </div>
+                        <div class="settlement-meta">
+                            ${this.formatDate(settlement.date)}
+                            ${settlement.notes ? ` • ${this.escapeHtml(settlement.notes)}` : ''}
+                        </div>
+                    </div>
+                    <div class="settlement-amount">
+                        <div class="settlement-total">$${settlement.amount.toFixed(2)}</div>
+                        <div class="settlement-status ${settlement.status}">
+                            ${settlement.status === 'completed' ? 'Verified' : 'Pending'}
+                        </div>
+                    </div>
+                    <button class="view-screenshot" onclick="tracker.viewScreenshot(${settlement.id})">
+                        View
                     </button>
                 </div>
             `;
@@ -287,38 +988,7 @@ class ExpenseTracker {
         return div.innerHTML;
     }
 
-    // Firebase methods (commented out for demo)
-    /*
-    async loadExpensesFromFirebase() {
-        try {
-            const snapshot = await this.db.collection('expenses')
-                .orderBy('date', 'desc')
-                .get();
-            
-            this.expenses = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-        } catch (error) {
-            console.error('Error loading expenses from Firebase:', error);
-        }
-    }
-
-    async syncToFirebase() {
-        // Real-time sync implementation
-        this.db.collection('expenses')
-            .orderBy('date', 'desc')
-            .onSnapshot((snapshot) => {
-                this.expenses = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-                this.updateDisplay();
-            });
-    }
-    */
-
-    // Local storage methods (for demo)
+    // Local storage methods
     saveExpenses() {
         localStorage.setItem('expenseTracker', JSON.stringify(this.expenses));
     }
@@ -327,22 +997,105 @@ class ExpenseTracker {
         const saved = localStorage.getItem('expenseTracker');
         return saved ? JSON.parse(saved) : [];
     }
+
+    saveSuggestions() {
+        localStorage.setItem('suggestions', JSON.stringify(this.suggestions));
+    }
+
+    loadSuggestions() {
+        const saved = localStorage.getItem('suggestions');
+        return saved ? JSON.parse(saved) : [];
+    }
+
+    saveToBuyItems() {
+        localStorage.setItem('toBuyItems', JSON.stringify(this.toBuyItems));
+    }
+
+    loadToBuyItems() {
+        const saved = localStorage.getItem('toBuyItems');
+        return saved ? JSON.parse(saved) : [];
+    }
+
+    saveSettlements() {
+        localStorage.setItem('settlements', JSON.stringify(this.settlements));
+    }
+
+    loadSettlements() {
+        const saved = localStorage.getItem('settlements');
+        return saved ? JSON.parse(saved) : [];
+    }
 }
 
 // Global functions for HTML onclick handlers
+function switchTab(tab) {
+    window.tracker.switchTab(tab);
+}
+
 function showAddExpense() {
     window.tracker.showAddExpense();
+}
+
+function showSuggestItem() {
+    window.tracker.showSuggestItem();
 }
 
 function showSettleUp() {
     window.tracker.showSettleUp();
 }
 
+function markAllBought() {
+    window.tracker.markAllBought();
+}
+
+function showAssignItems() {
+    window.tracker.showAssignItems();
+}
+
 function closeModal() {
     window.tracker.closeModal();
+}
+
+function confirmAssignment() {
+    window.tracker.confirmAssignment();
+}
+
+function showSettleUpModal() {
+    window.tracker.showSettleUpModal();
+}
+
+function submitSettlement() {
+    window.tracker.submitSettlement();
+}
+
+function removeScreenshot() {
+    window.tracker.removeScreenshot();
 }
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.tracker = new ExpenseTracker();
+    
+    // Add validation listeners after tracker is initialized
+    setTimeout(() => {
+        const amountInput = document.getElementById('settlementAmount');
+        const methodSelect = document.getElementById('paymentMethod');
+        
+        if (amountInput && methodSelect) {
+            amountInput.addEventListener('input', () => {
+                if (window.tracker) {
+                    window.tracker.updateSubmitButton();
+                    // Re-run OCR if screenshot exists and amount changed
+                    if (window.tracker.uploadedScreenshot) {
+                        window.tracker.processOCR(window.tracker.uploadedScreenshot.data);
+                    }
+                }
+            });
+            
+            methodSelect.addEventListener('input', () => {
+                if (window.tracker) {
+                    window.tracker.updateSubmitButton();
+                }
+            });
+        }
+    }, 100);
 });

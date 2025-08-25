@@ -20,15 +20,89 @@
         </header>
 
 
-        <div class="quick-actions">
-            <button class="action-btn" onclick="showAddExpense()">
-                <div class="action-icon">💳</div>
-                <span>Add expense</span>
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="expenses" onclick="switchTab('expenses')">
+                <div class="tab-icon">💳</div>
+                <span>Expenses</span>
             </button>
-            <button class="action-btn" onclick="showSettleUp()">
-                <div class="action-icon">💸</div>
-                <span>Settle up</span>
+            <button class="tab-btn" data-tab="suggestions" onclick="switchTab('suggestions')">
+                <div class="tab-icon">💡</div>
+                <span>Suggestions</span>
             </button>
+            <button class="tab-btn" data-tab="tobuy" onclick="switchTab('tobuy')">
+                <div class="tab-icon">🛒</div>
+                <span>To Buy</span>
+            </button>
+            <button class="tab-btn" data-tab="settlements" onclick="switchTab('settlements')">
+                <div class="tab-icon">💸</div>
+                <span>Payments</span>
+            </button>
+        </nav>
+
+        <div class="main-content">
+            <div class="tab-content" id="expensesTab">
+            <div class="quick-actions">
+                <button class="action-btn" onclick="showAddExpense()">
+                    <div class="action-icon">💳</div>
+                    <span>Add expense</span>
+                </button>
+                <button class="action-btn" onclick="showSettleUp()">
+                    <div class="action-icon">💸</div>
+                    <span>Settle up</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="tab-content hidden" id="suggestionsTab">
+            <div class="quick-actions">
+                <button class="action-btn" onclick="showSuggestItem()">
+                    <div class="action-icon">💡</div>
+                    <span>Suggest item</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="tab-content hidden" id="tobuyTab">
+            <div class="quick-actions">
+                <button class="action-btn" onclick="markAllBought()">
+                    <div class="action-icon">✅</div>
+                    <span>Mark bought</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="tab-content hidden" id="settlementsTab">
+            <div class="quick-actions">
+                <button class="action-btn" onclick="showSettleUpModal()">
+                    <div class="action-icon">💸</div>
+                    <span>Send payment</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="modal" id="suggestItemModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Suggest an item</h3>
+                    <button class="close-btn" onclick="closeModal()">&times;</button>
+                </div>
+                <form id="suggestionForm">
+                    <div class="form-group">
+                        <input type="text" id="suggestionDescription" placeholder="What do we need?" required>
+                    </div>
+                    
+                    <div class="amount-group">
+                        <span class="currency">$</span>
+                        <input type="number" id="suggestionAmount" placeholder="0.00" step="0.01" min="0">
+                    </div>
+                    
+                    <div class="form-group">
+                        <textarea id="suggestionReason" placeholder="Why do we need this? (optional)" rows="3"></textarea>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary save-btn">Send Suggestion</button>
+                </form>
+            </div>
         </div>
 
         <div class="modal" id="addExpenseModal">
@@ -66,7 +140,7 @@
             </div>
         </div>
 
-        <div class="expenses-section">
+        <div class="content-section" id="expensesContent">
             <div class="section-header">
                 <h3>Recent activity</h3>
                 <button class="view-all-btn">View all</button>
@@ -75,6 +149,35 @@
                 <!-- Expenses will be added here dynamically -->
             </div>
         </div>
+
+        <div class="content-section hidden" id="suggestionsContent">
+            <div class="section-header">
+                <h3>Pending suggestions</h3>
+            </div>
+            <div id="suggestionsList" class="suggestions">
+                <!-- Suggestions will be added here dynamically -->
+            </div>
+        </div>
+
+        <div class="content-section hidden" id="tobuyContent">
+            <div class="section-header">
+                <h3>Shopping list</h3>
+                <button class="view-all-btn" onclick="showAssignItems()">Assign all</button>
+            </div>
+            <div id="tobuyList" class="tobuy">
+                <!-- To-buy items will be added here dynamically -->
+            </div>
+        </div>
+
+        <div class="content-section hidden" id="settlementsContent">
+            <div class="section-header">
+                <h3>Payment history</h3>
+            </div>
+            <div id="settlementsList" class="settlements">
+                <!-- Settlement history will be added here dynamically -->
+            </div>
+        </div>
+        </div>
     </div>
 
     <script type="module">
@@ -82,6 +185,102 @@
         import { getFirestore } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
         window.firebase = { initializeApp, getFirestore };
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="script.js"></script>
+    
+    <!-- Settlement Modal -->
+    <div class="modal" id="settleUpModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Send Payment</h3>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="settlement-content">
+                <div class="payment-info" id="paymentInfo">
+                    <!-- Payment details will be shown here -->
+                </div>
+                
+                <div class="form-group">
+                    <label>Payment amount</label>
+                    <div class="amount-group">
+                        <span class="currency">$</span>
+                        <input type="number" id="settlementAmount" placeholder="0.00" step="0.01" min="0" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Payment method</label>
+                    <select id="paymentMethod" required>
+                        <option value="">Select payment method</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="venmo">Venmo</option>
+                        <option value="paypal">PayPal</option>
+                        <option value="zelle">Zelle</option>
+                        <option value="cash">Cash</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Upload payment screenshot</label>
+                    <div class="file-upload-area" id="fileUploadArea">
+                        <input type="file" id="paymentScreenshot" accept="image/*" capture="environment">
+                        <div class="upload-placeholder">
+                            <div class="upload-icon">📷</div>
+                            <p>Tap to upload screenshot of payment</p>
+                            <small>Required for verification</small>
+                        </div>
+                        <div class="upload-preview hidden" id="uploadPreview">
+                            <img id="previewImage" alt="Payment screenshot">
+                            <button type="button" class="remove-image" onclick="removeScreenshot()">&times;</button>
+                        </div>
+                        <div class="ocr-processing hidden" id="ocrProcessing">
+                            <div class="ocr-spinner"></div>
+                            <p>Scanning screenshot for payment amount...</p>
+                        </div>
+                        <div class="ocr-result hidden" id="ocrResult">
+                            <div class="verification-status" id="verificationStatus"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Notes (optional)</label>
+                    <textarea id="settlementNotes" placeholder="Add any notes about this payment..." rows="3"></textarea>
+                </div>
+                
+                <button class="btn-primary save-btn" onclick="submitSettlement()" disabled>Send Payment</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assignment Modal -->
+    <div class="modal" id="assignModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Assign item</h3>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="assignment-content">
+                <div class="item-info" id="assignItemInfo">
+                    <!-- Item details will be shown here -->
+                </div>
+                <div class="paid-by-group">
+                    <label>Assign to</label>
+                    <div class="person-selector">
+                        <button type="button" class="person-btn assign-btn" data-person="you">
+                            <div class="person-avatar">👤</div>
+                            <span>You</span>
+                        </button>
+                        <button type="button" class="person-btn assign-btn" data-person="housemate">
+                            <div class="person-avatar">👥</div>
+                            <span>Housemate</span>
+                        </button>
+                    </div>
+                </div>
+                <button class="btn-primary save-btn" onclick="confirmAssignment()" disabled>Assign Item</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
