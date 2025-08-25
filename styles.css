@@ -536,22 +536,25 @@ header h1 {
 }
 
 .split-selector {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
 .split-btn {
+    flex: 1;
+    min-width: calc(50% - 5px);
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 12px 8px;
+    padding: 14px 10px;
     background: #f8f9fa;
     border: 2px solid #e9ecef;
     border-radius: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
     font-size: 0.85rem;
+    text-align: center;
 }
 
 .split-btn:hover {
@@ -562,16 +565,38 @@ header h1 {
 .split-btn.selected {
     background: #e8f5f0;
     border-color: #1cc29f;
+    color: #1cc29f;
 }
 
 .split-icon {
-    font-size: 1.2rem;
-    margin-bottom: 4px;
+    font-size: 1.3rem;
+    margin-bottom: 6px;
+    line-height: 1;
 }
 
 .split-btn span {
     font-weight: 500;
-    color: #1a1a1a;
+    color: inherit;
+    font-size: 0.8rem;
+    line-height: 1.2;
+}
+
+/* Mobile responsive adjustments for split selector */
+@media (max-width: 480px) {
+    .split-btn {
+        min-width: calc(50% - 5px);
+        padding: 12px 8px;
+        font-size: 0.8rem;
+    }
+    
+    .split-icon {
+        font-size: 1.1rem;
+        margin-bottom: 4px;
+    }
+    
+    .split-btn span {
+        font-size: 0.75rem;
+    }
 }
 
 .save-btn {
