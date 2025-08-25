@@ -20,9 +20,113 @@ class ExpenseTracker {
         this.currentTab = 'expenses';
         this.assigningItem = null;
         this.uploadedScreenshot = null;
+        this.currentAccount = 'richard'; // Default account
         this.db = null;
+        this.initializeAccount();
         this.initializeFirebase();
         this.initializeEventListeners();
+        // Update person selector buttons after DOM is ready
+        setTimeout(() => this.updatePersonSelectorButtons(), 100);
+    }
+
+    initializeAccount() {
+        // Load saved account or default to richard
+        const savedAccount = localStorage.getItem('currentAccount');
+        if (savedAccount && ['richard', 'tim', 'fijar'].includes(savedAccount)) {
+            this.currentAccount = savedAccount;
+        }
+        
+        // Set the select value
+        const accountSelect = document.getElementById('accountSelect');
+        if (accountSelect) {
+            accountSelect.value = this.currentAccount;
+        }
+    }
+
+    switchAccount(accountName) {
+        // Save current account data before switching
+        this.saveAllData();
+        
+        // Switch to new account
+        this.currentAccount = accountName;
+        localStorage.setItem('currentAccount', accountName);
+        
+        // Load new account data
+        this.loadAllData();
+        
+        // Update display
+        this.updateDisplay();
+        this.updatePersonSelectorButtons();
+        
+        // Reset current state
+        this.currentTab = 'expenses';
+        this.selectedPerson = null;
+        this.assigningItem = null;
+        this.uploadedScreenshot = null;
+        
+        // Update UI
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === 'expenses');
+        });
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.toggle('hidden', !content.id.includes('expenses'));
+        });
+        document.querySelectorAll('.content-section').forEach(section => {
+            section.classList.toggle('hidden', !section.id.includes('expenses'));
+        });
+    }
+
+    getStorageKey(dataType) {
+        return `${dataType}_${this.currentAccount}`;
+    }
+
+    getOtherAccounts() {
+        const allAccounts = ['richard', 'tim', 'fijar'];
+        return allAccounts.filter(account => account !== this.currentAccount);
+    }
+
+    getCurrentAccountDisplayName() {
+        return this.currentAccount.charAt(0).toUpperCase() + this.currentAccount.slice(1);
+    }
+
+    getOtherAccountsDisplayName() {
+        const others = this.getOtherAccounts();
+        if (others.length === 1) {
+            return others[0].charAt(0).toUpperCase() + others[0].slice(1);
+        } else {
+            return others.map(name => name.charAt(0).toUpperCase() + name.slice(1)).join(' & ');
+        }
+    }
+
+    updatePersonSelectorButtons() {
+        const currentAccountName = this.getCurrentAccountDisplayName();
+        const otherAccountsName = this.getOtherAccountsDisplayName();
+        
+        // Update expense form buttons
+        const youBtn = document.querySelector('#addExpenseModal .person-btn[data-person="you"] span');
+        const housemateBtn = document.querySelector('#addExpenseModal .person-btn[data-person="housemate"] span');
+        if (youBtn) youBtn.textContent = currentAccountName;
+        if (housemateBtn) housemateBtn.textContent = otherAccountsName;
+        
+        // Update assignment modal buttons
+        const assignYouBtn = document.querySelector('#assignModal .person-btn[data-person="you"] span');
+        const assignHousemateBtn = document.querySelector('#assignModal .person-btn[data-person="housemate"] span');
+        if (assignYouBtn) assignYouBtn.textContent = currentAccountName;
+        if (assignHousemateBtn) assignHousemateBtn.textContent = otherAccountsName;
+    }
+
+    saveAllData() {
+        this.saveExpenses();
+        this.saveSuggestions();
+        this.saveToBuyItems();
+        this.saveSettlements();
+    }
+
+    loadAllData() {
+        this.expenses = this.loadExpenses();
+        this.suggestions = this.loadSuggestions();
+        this.toBuyItems = this.loadToBuyItems();
+        this.settlements = this.loadSettlements();
     }
 
     async initializeFirebase() {
@@ -36,17 +140,12 @@ class ExpenseTracker {
             */
             
             // Load from localStorage for now
-            this.expenses = this.loadExpenses();
-            this.suggestions = this.loadSuggestions();
-            this.toBuyItems = this.loadToBuyItems();
-            this.settlements = this.loadSettlements();
+            this.loadAllData();
             this.updateDisplay();
         } catch (error) {
             console.error('Firebase initialization error:', error);
             // Fallback to localStorage
-            this.expenses = this.loadExpenses();
-            this.suggestions = this.loadSuggestions();
-            this.toBuyItems = this.loadToBuyItems();
+            this.loadAllData();
             this.updateDisplay();
         }
     }
@@ -207,9 +306,11 @@ class ExpenseTracker {
 
     showSettleUpModal() {
         const totals = this.calculateTotals();
+        const currentAccount = this.getCurrentAccountDisplayName();
+        const otherAccounts = this.getOtherAccountsDisplayName();
         
         if (totals.youOwe === 0 && totals.housemateOwes === 0) {
-            alert('You are all settled up! No payment needed.');
+            alert('All settled up! No payment needed.');
             return;
         }
         
@@ -219,15 +320,15 @@ class ExpenseTracker {
         
         if (totals.youOwe > 0) {
             paymentInfo.innerHTML = `
-                <h4>Send payment to housemate</h4>
-                <p>You currently owe your housemate</p>
+                <h4>Send payment to ${otherAccounts.toLowerCase()}</h4>
+                <p>${currentAccount} currently owes ${otherAccounts.toLowerCase()}</p>
                 <div class="payment-amount">$${totals.youOwe.toFixed(2)}</div>
             `;
             amountInput.value = totals.youOwe.toFixed(2);
         } else {
             paymentInfo.innerHTML = `
-                <h4>Request payment from housemate</h4>
-                <p>Your housemate owes you</p>
+                <h4>Request payment from ${otherAccounts.toLowerCase()}</h4>
+                <p>${otherAccounts} owes ${currentAccount}</p>
                 <div class="payment-amount">$${totals.housemateOwes.toFixed(2)}</div>
             `;
             amountInput.value = totals.housemateOwes.toFixed(2);
@@ -772,31 +873,34 @@ class ExpenseTracker {
         const totals = this.calculateTotals();
         const balanceSummary = document.getElementById('balanceSummary');
         const balanceText = balanceSummary.querySelector('.balance-text');
+        const otherAccounts = this.getOtherAccountsDisplayName();
         
         if (totals.grandTotal === 0) {
-            balanceText.textContent = 'You are all settled up!';
+            balanceText.textContent = 'All settled up!';
             balanceSummary.style.background = 'rgba(255, 255, 255, 0.15)';
         } else if (totals.youOwe > 0) {
-            balanceText.textContent = `You owe your housemate $${totals.youOwe.toFixed(2)}`;
+            balanceText.textContent = `${this.getCurrentAccountDisplayName()} owes ${otherAccounts} $${totals.youOwe.toFixed(2)}`;
             balanceSummary.style.background = 'rgba(220, 53, 69, 0.2)';
         } else if (totals.housemateOwes > 0) {
-            balanceText.textContent = `Your housemate owes you $${totals.housemateOwes.toFixed(2)}`;
+            balanceText.textContent = `${otherAccounts} owes ${this.getCurrentAccountDisplayName()} $${totals.housemateOwes.toFixed(2)}`;
             balanceSummary.style.background = 'rgba(40, 199, 111, 0.2)';
         } else {
-            balanceText.textContent = 'You are all settled up!';
+            balanceText.textContent = 'All settled up!';
             balanceSummary.style.background = 'rgba(255, 255, 255, 0.15)';
         }
     }
 
     renderExpenses() {
         const container = document.getElementById('expensesList');
+        const currentAccount = this.getCurrentAccountDisplayName();
+        const otherAccounts = this.getOtherAccountsDisplayName();
         
         if (this.expenses.length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">💸</div>
                     <h3>No expenses yet</h3>
-                    <p>Track shared expenses between you and your housemate. Split costs easily and see who owes what.</p>
+                    <p>Track shared expenses between ${currentAccount} and ${otherAccounts.toLowerCase()}. Split costs easily and see who owes what.</p>
                 </div>
             `;
             return;
@@ -805,6 +909,7 @@ class ExpenseTracker {
         container.innerHTML = this.expenses.map(expense => {
             const halfAmount = expense.amount / 2;
             const isYourExpense = expense.paidBy === 'you';
+            const paidByName = isYourExpense ? currentAccount : otherAccounts.toLowerCase();
             
             return `
                 <div class="expense-item">
@@ -812,7 +917,7 @@ class ExpenseTracker {
                     <div class="expense-details">
                         <div class="expense-description">${this.escapeHtml(expense.description)}</div>
                         <div class="expense-meta">
-                            Paid by ${isYourExpense ? 'you' : 'your housemate'} • 
+                            Paid by ${paidByName} • 
                             ${this.formatDate(expense.date)}
                             ${expense.fromToBuy ? ' • From shopping list' : ''}
                         </div>
@@ -820,7 +925,7 @@ class ExpenseTracker {
                     <div class="expense-amount">
                         <div class="expense-total">$${expense.amount.toFixed(2)}</div>
                         <div class="expense-split ${isYourExpense ? 'you-get' : 'you-owe'}">
-                            ${isYourExpense ? 'you get' : 'you owe'} $${halfAmount.toFixed(2)}
+                            ${isYourExpense ? `${currentAccount} gets` : `${currentAccount} owes`} $${halfAmount.toFixed(2)}
                         </div>
                     </div>
                     <button class="delete-btn" onclick="tracker.deleteExpense(${expense.id})">
@@ -833,13 +938,14 @@ class ExpenseTracker {
 
     renderSuggestions() {
         const container = document.getElementById('suggestionsList');
+        const otherAccounts = this.getOtherAccountsDisplayName();
         
         if (this.suggestions.length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">💡</div>
                     <h3>No suggestions yet</h3>
-                    <p>Suggest items you think you both need. Your housemate can accept or reject suggestions.</p>
+                    <p>Suggest items you think you need. ${otherAccounts} can accept or reject suggestions.</p>
                 </div>
             `;
             return;
@@ -895,7 +1001,7 @@ class ExpenseTracker {
                 <div class="tobuy-amount">
                     ${item.amount ? `<div class="tobuy-price">$${item.amount.toFixed(2)}</div>` : ''}
                     <div class="tobuy-assigned ${item.assignedTo ? 'assigned' : ''}">
-                        ${item.assignedTo ? `Assigned to ${item.assignedTo === 'you' ? 'you' : 'housemate'}` : 'Unassigned'}
+                        ${item.assignedTo ? `Assigned to ${item.assignedTo === 'you' ? this.getCurrentAccountDisplayName() : this.getOtherAccountsDisplayName().toLowerCase()}` : 'Unassigned'}
                     </div>
                 </div>
                 ${!item.assignedTo ? 
@@ -988,40 +1094,40 @@ class ExpenseTracker {
         return div.innerHTML;
     }
 
-    // Local storage methods
+    // Local storage methods (account-specific)
     saveExpenses() {
-        localStorage.setItem('expenseTracker', JSON.stringify(this.expenses));
+        localStorage.setItem(this.getStorageKey('expenseTracker'), JSON.stringify(this.expenses));
     }
 
     loadExpenses() {
-        const saved = localStorage.getItem('expenseTracker');
+        const saved = localStorage.getItem(this.getStorageKey('expenseTracker'));
         return saved ? JSON.parse(saved) : [];
     }
 
     saveSuggestions() {
-        localStorage.setItem('suggestions', JSON.stringify(this.suggestions));
+        localStorage.setItem(this.getStorageKey('suggestions'), JSON.stringify(this.suggestions));
     }
 
     loadSuggestions() {
-        const saved = localStorage.getItem('suggestions');
+        const saved = localStorage.getItem(this.getStorageKey('suggestions'));
         return saved ? JSON.parse(saved) : [];
     }
 
     saveToBuyItems() {
-        localStorage.setItem('toBuyItems', JSON.stringify(this.toBuyItems));
+        localStorage.setItem(this.getStorageKey('toBuyItems'), JSON.stringify(this.toBuyItems));
     }
 
     loadToBuyItems() {
-        const saved = localStorage.getItem('toBuyItems');
+        const saved = localStorage.getItem(this.getStorageKey('toBuyItems'));
         return saved ? JSON.parse(saved) : [];
     }
 
     saveSettlements() {
-        localStorage.setItem('settlements', JSON.stringify(this.settlements));
+        localStorage.setItem(this.getStorageKey('settlements'), JSON.stringify(this.settlements));
     }
 
     loadSettlements() {
-        const saved = localStorage.getItem('settlements');
+        const saved = localStorage.getItem(this.getStorageKey('settlements'));
         return saved ? JSON.parse(saved) : [];
     }
 }
@@ -1057,6 +1163,13 @@ function closeModal() {
 
 function confirmAssignment() {
     window.tracker.confirmAssignment();
+}
+
+function switchAccount() {
+    const accountSelect = document.getElementById('accountSelect');
+    if (window.tracker && accountSelect) {
+        window.tracker.switchAccount(accountSelect.value);
+    }
 }
 
 function showSettleUpModal() {

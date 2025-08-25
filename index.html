@@ -12,7 +12,16 @@
         <header>
             <div class="app-header">
                 <div class="app-icon">💰</div>
-                <h1>SplitBill</h1>
+                <div class="header-content">
+                    <h1>SplitBill</h1>
+                    <div class="account-selector">
+                        <select id="accountSelect" onchange="switchAccount()">
+                            <option value="richard">Richard's Account</option>
+                            <option value="tim">Tim's Account</option>
+                            <option value="fijar">Fijar's Account</option>
+                        </select>
+                    </div>
+                </div>
             </div>
             <div class="balance-summary" id="balanceSummary">
                 <div class="balance-text">You are all settled up!</div>
